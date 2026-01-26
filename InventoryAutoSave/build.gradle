@@ -1,0 +1,25 @@
+plugins {
+  id 'java'
+}
+
+group = 'com.kubelize'
+version = '0.1.0'
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(25)
+  }
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  compileOnly files('libs/HytaleServer.jar')
+  compileOnly files('libs/InventoryManagerAPI-1.1.0.jar')
+}
+
+tasks.withType(JavaCompile).configureEach {
+  options.encoding = 'UTF-8'
+}

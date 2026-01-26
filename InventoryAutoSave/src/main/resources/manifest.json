@@ -1,0 +1,19 @@
+{
+  "Group": "com.kubelize",
+  "Name": "InventoryAutoSave",
+  "Version": "0.1.0",
+  "Description": "Auto save/load player inventories using InventoryManagerAPI.",
+  "Authors": [
+    {
+      "Name": "kubelize"
+    }
+  ],
+  "Website": "https://kubelize.com",
+  "ServerVersion": "*",
+  "Dependencies": {
+    "DjCtavia:InventoryManagerAPI": ">=1.1.0"
+  },
+  "DisabledByDefault": false,
+  "IncludesAssetPack": false,
+  "Main": "com.kubelize.inventoryautosave.InventoryAutoSavePlugin"
+}
