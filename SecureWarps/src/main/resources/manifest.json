@@ -1,0 +1,17 @@
+{
+  "Group": "com.kubelize",
+  "Name": "SecureWarps",
+  "Version": "0.1.0",
+  "Description": "Secure warp system with TLS-backed database storage.",
+  "Authors": [
+    {
+      "Name": "kubelize"
+    }
+  ],
+  "Website": "https://kubelize.com",
+  "ServerVersion": "*",
+  "Dependencies": {},
+  "DisabledByDefault": false,
+  "IncludesAssetPack": false,
+  "Main": "com.kubelize.securewarps.SecureWarpsPlugin"
+}

@@ -1,0 +1,38 @@
+plugins {
+  id 'java'
+  id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group = 'com.kubelize'
+version = '0.1.0'
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(25)
+  }
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  compileOnly files('libs/HytaleServer.jar')
+
+  // Bundled runtime deps for DB access.
+  implementation 'com.zaxxer:HikariCP:5.1.0'
+  implementation 'org.postgresql:postgresql:42.7.3'
+  implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+}
+
+tasks.withType(JavaCompile).configureEach {
+  options.encoding = 'UTF-8'
+}
+
+tasks.jar {
+  enabled = false
+}
+
+tasks.shadowJar {
+  archiveClassifier.set('')
+}
