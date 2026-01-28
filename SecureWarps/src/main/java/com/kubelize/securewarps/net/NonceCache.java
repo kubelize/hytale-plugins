@@ -7,13 +7,22 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class NonceCache {
   private final ConcurrentHashMap<String, Long> nonces = new ConcurrentHashMap<>();
+  private final int maxEntries;
+
+  public NonceCache(int maxEntries) {
+    this.maxEntries = Math.max(1000, maxEntries);
+  }
 
   public boolean registerIfFresh(String nonce, long timestampSeconds, int allowedSkewSeconds) {
     long now = Instant.now().getEpochSecond();
     if (Math.abs(now - timestampSeconds) > allowedSkewSeconds) {
       return false;
     }
-    return nonces.putIfAbsent(nonce, timestampSeconds) == null;
+    boolean added = nonces.putIfAbsent(nonce, timestampSeconds) == null;
+    if (added && nonces.size() > maxEntries) {
+      pruneOlderThan(now - allowedSkewSeconds);
+    }
+    return added;
   }
 
   public void pruneOlderThan(long cutoffSeconds) {

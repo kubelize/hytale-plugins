@@ -10,7 +10,11 @@ import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.kubelize.securewarps.db.DatabaseManager;
 import com.kubelize.securewarps.db.WarpRecord;
+import com.kubelize.securewarps.util.ErrorUtil;
+import com.kubelize.securewarps.util.GameThread;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.annotation.Nonnull;
 import org.checkerframework.checker.nullness.compatqual.NonNullDecl;
 
@@ -30,9 +34,10 @@ public class WarpListCommand extends AbstractPlayerCommand {
                          @NonNullDecl PlayerRef playerRef,
                          @NonNullDecl World world) {
     databaseManager.listWarps()
-        .thenAccept(warps -> sendList(playerRef, warps))
+        .thenAccept(warps -> GameThread.run(playerRef, () -> sendList(playerRef, warps)))
         .exceptionally(err -> {
-          playerRef.sendMessage(Message.raw("Failed to list warps."));
+          Logger.getLogger(getClass().getName()).log(Level.WARNING, "Failed to list warps", ErrorUtil.rootCause(err));
+          GameThread.run(playerRef, () -> playerRef.sendMessage(Message.raw(ErrorUtil.isTimeout(err) ? "Warp list timed out." : "Failed to list warps.")));
           return null;
         });
   }

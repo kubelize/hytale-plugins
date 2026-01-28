@@ -4,6 +4,8 @@ import com.kubelize.securewarps.config.DatabaseConfig;
 import com.kubelize.securewarps.inventory.InventorySnapshotUtil;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.server.core.util.concurrent.ThreadUtil;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -19,53 +21,60 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.util.logging.Level;
 import org.bson.BsonDocument;
 
 public class DatabaseManager implements AutoCloseable {
   private final DatabaseConfig config;
-  private final Logger logger;
+  private final HytaleLogger logger;
   private HikariDataSource dataSource;
   private ExecutorService executor;
 
-  public DatabaseManager(DatabaseConfig config, Logger logger) {
+  public DatabaseManager(DatabaseConfig config, HytaleLogger logger) {
     this.config = config;
     this.logger = logger;
   }
 
   public void start() {
-    HikariConfig hikari = new HikariConfig();
-    hikari.setJdbcUrl(buildJdbcUrl());
-    hikari.setUsername(config.getUsername());
-    hikari.setPassword(resolvePassword());
-    hikari.setMaximumPoolSize(config.getMaxPoolSize());
-    hikari.setMinimumIdle(config.getMinIdle());
-    hikari.setConnectionTimeout(config.getConnectTimeoutMillis());
-
-    Properties dsProps = new Properties();
     String sslMode = config.getSslMode();
-    if (sslMode != null && !sslMode.isBlank()) {
-      dsProps.setProperty("sslmode", sslMode);
+    try {
+      HikariConfig hikari = new HikariConfig();
+      hikari.setJdbcUrl(buildJdbcUrl());
+      hikari.setDriverClassName("org.postgresql.Driver");
+      hikari.setUsername(config.getUsername());
+      hikari.setPassword(resolvePassword());
+      hikari.setMaximumPoolSize(config.getMaxPoolSize());
+      hikari.setMinimumIdle(config.getMinIdle());
+      hikari.setConnectionTimeout(config.getConnectTimeoutMillis());
+
+      Properties dsProps = new Properties();
+      if (sslMode != null && !sslMode.isBlank()) {
+        dsProps.setProperty("sslmode", sslMode);
+      }
+
+      addIfPresent(dsProps, "sslrootcert", config.getSslRootCert());
+      addIfPresent(dsProps, "sslcert", config.getSslCert());
+      addIfPresent(dsProps, "sslkey", config.getSslKey());
+      addIfPresent(dsProps, "sslpassword", config.getSslKeyPassword());
+
+      hikari.setDataSourceProperties(dsProps);
+
+      this.executor = Executors.newFixedThreadPool(Math.max(2, config.getDbExecutorThreads()), ThreadUtil.daemonCounted("SecureWarps-DB"));
+      this.dataSource = new HikariDataSource(hikari);
+
+      logger.at(Level.INFO).log("[SecureWarps] Database initialized with TLS mode: " + safe(sslMode));
+      initializeSchema();
+    } catch (Exception e) {
+      logger.at(Level.SEVERE).withCause(e).log("[SecureWarps] Database initialization failed: " + e.getMessage());
+      throw e;
     }
-
-    addIfPresent(dsProps, "sslrootcert", config.getSslRootCert());
-    addIfPresent(dsProps, "sslcert", config.getSslCert());
-    addIfPresent(dsProps, "sslkey", config.getSslKey());
-    addIfPresent(dsProps, "sslpassword", config.getSslKeyPassword());
-
-    hikari.setDataSourceProperties(dsProps);
-
-    this.executor = Executors.newFixedThreadPool(Math.max(2, config.getDbExecutorThreads()));
-    this.dataSource = new HikariDataSource(hikari);
-
-    logger.at(Level.INFO).log("[SecureWarps] Database initialized with TLS mode: " + safe(sslMode));
-    initializeSchema();
   }
 
   public CompletableFuture<Void> saveWarp(WarpRecord warp) {
-    String sql = "INSERT INTO warps (id, name, owner_uuid, world_id, x, y, z, rot_x, rot_y, rot_z, updated_at)\n"
-        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)\n"
+    String sql = "INSERT INTO warps (id, name, owner_uuid, world_id, x, y, z, rot_x, rot_y, rot_z, server_host, server_port, updated_at)\n"
+        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)\n"
         + "ON CONFLICT (name) DO UPDATE SET\n"
+        + "  id = EXCLUDED.id,\n"
         + "  owner_uuid = EXCLUDED.owner_uuid,\n"
         + "  world_id = EXCLUDED.world_id,\n"
         + "  x = EXCLUDED.x,\n"
@@ -74,6 +83,8 @@ public class DatabaseManager implements AutoCloseable {
         + "  rot_x = EXCLUDED.rot_x,\n"
         + "  rot_y = EXCLUDED.rot_y,\n"
         + "  rot_z = EXCLUDED.rot_z,\n"
+        + "  server_host = EXCLUDED.server_host,\n"
+        + "  server_port = EXCLUDED.server_port,\n"
         + "  updated_at = CURRENT_TIMESTAMP";
 
     return CompletableFuture.runAsync(() -> {
@@ -88,6 +99,12 @@ public class DatabaseManager implements AutoCloseable {
         stmt.setFloat(8, warp.rotX());
         stmt.setFloat(9, warp.rotY());
         stmt.setFloat(10, warp.rotZ());
+        stmt.setString(11, warp.serverHost());
+        if (warp.serverPort() == null) {
+          stmt.setNull(12, java.sql.Types.INTEGER);
+        } else {
+          stmt.setInt(12, warp.serverPort());
+        }
         stmt.executeUpdate();
       } catch (SQLException e) {
         throw new RuntimeException("Failed to save warp: " + warp.name(), e);
@@ -95,15 +112,31 @@ public class DatabaseManager implements AutoCloseable {
     }, executor).orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
   }
 
-  public CompletableFuture<Optional<WarpRecord>> getWarpByName(String name) {
-    String sql = "SELECT id, name, owner_uuid, world_id, x, y, z, rot_x, rot_y, rot_z FROM warps WHERE name = ?";
+  public CompletableFuture<Boolean> updateWarpServer(String name, String host, int port) {
+    String sql = "UPDATE warps SET server_host = ?, server_port = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?";
     return CompletableFuture.supplyAsync(() -> {
+      try (Connection conn = dataSource.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
+        stmt.setString(1, host);
+        stmt.setInt(2, port);
+        stmt.setString(3, name);
+        int updated = stmt.executeUpdate();
+        return updated > 0;
+      } catch (SQLException e) {
+        throw new RuntimeException("Failed to update warp server: " + name, e);
+      }
+    }, executor).orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+  }
+
+  public CompletableFuture<Optional<WarpRecord>> getWarpByName(String name) {
+    String sql = "SELECT id, name, owner_uuid, world_id, x, y, z, rot_x, rot_y, rot_z, server_host, server_port FROM warps WHERE name = ?";
+    CompletableFuture<Optional<WarpRecord>> future = CompletableFuture.supplyAsync(() -> {
       try (Connection conn = dataSource.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
         stmt.setString(1, name);
         try (ResultSet rs = stmt.executeQuery()) {
           if (!rs.next()) {
-            return Optional.empty();
+            return Optional.<WarpRecord>empty();
           }
+          Integer port = (Integer) rs.getObject("server_port");
           return Optional.of(new WarpRecord(
               (UUID) rs.getObject("id"),
               rs.getString("name"),
@@ -114,22 +147,26 @@ public class DatabaseManager implements AutoCloseable {
               rs.getDouble("z"),
               rs.getFloat("rot_x"),
               rs.getFloat("rot_y"),
-              rs.getFloat("rot_z")
+              rs.getFloat("rot_z"),
+              rs.getString("server_host"),
+              port
           ));
         }
       } catch (SQLException e) {
         throw new RuntimeException("Failed to fetch warp: " + name, e);
       }
-    }, executor).orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+    }, executor);
+    return future.orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
   }
 
   public CompletableFuture<List<WarpRecord>> listWarps() {
-    String sql = "SELECT id, name, owner_uuid, world_id, x, y, z, rot_x, rot_y, rot_z FROM warps ORDER BY name";
+    String sql = "SELECT id, name, owner_uuid, world_id, x, y, z, rot_x, rot_y, rot_z, server_host, server_port FROM warps ORDER BY name";
     return CompletableFuture.supplyAsync(() -> {
       List<WarpRecord> results = new ArrayList<>();
       try (Connection conn = dataSource.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
         try (ResultSet rs = stmt.executeQuery()) {
           while (rs.next()) {
+            Integer port = (Integer) rs.getObject("server_port");
             results.add(new WarpRecord(
                 (UUID) rs.getObject("id"),
                 rs.getString("name"),
@@ -140,7 +177,9 @@ public class DatabaseManager implements AutoCloseable {
                 rs.getDouble("z"),
                 rs.getFloat("rot_x"),
                 rs.getFloat("rot_y"),
-                rs.getFloat("rot_z")
+                rs.getFloat("rot_z"),
+                rs.getString("server_host"),
+                port
             ));
           }
         }
@@ -183,12 +222,12 @@ public class DatabaseManager implements AutoCloseable {
 
   public CompletableFuture<Optional<com.hypixel.hytale.server.core.inventory.Inventory>> loadInventory(UUID playerUuid) {
     String sql = "SELECT data FROM inventories WHERE player_uuid = ?";
-    return CompletableFuture.supplyAsync(() -> {
+    CompletableFuture<Optional<com.hypixel.hytale.server.core.inventory.Inventory>> future = CompletableFuture.supplyAsync(() -> {
       try (Connection conn = dataSource.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
         stmt.setObject(1, playerUuid);
         try (ResultSet rs = stmt.executeQuery()) {
           if (!rs.next()) {
-            return Optional.empty();
+            return Optional.<com.hypixel.hytale.server.core.inventory.Inventory>empty();
           }
           String json = rs.getString("data");
           BsonDocument doc = BsonDocument.parse(json);
@@ -197,7 +236,8 @@ public class DatabaseManager implements AutoCloseable {
       } catch (SQLException e) {
         throw new RuntimeException("Failed to load inventory for " + playerUuid, e);
       }
-    }, executor).orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+    }, executor);
+    return future.orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
   }
 
   public CompletableFuture<Boolean> deleteInventory(UUID playerUuid) {
@@ -224,6 +264,8 @@ public class DatabaseManager implements AutoCloseable {
         + "  rot_x FLOAT NOT NULL,\n"
         + "  rot_y FLOAT NOT NULL,\n"
         + "  rot_z FLOAT NOT NULL,\n"
+        + "  server_host VARCHAR(255),\n"
+        + "  server_port INTEGER,\n"
         + "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n"
         + "  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n"
         + ")";
@@ -237,6 +279,8 @@ public class DatabaseManager implements AutoCloseable {
 
     try (Connection conn = dataSource.getConnection(); Statement stmt = conn.createStatement()) {
       stmt.execute(warpsSql);
+      stmt.execute("ALTER TABLE warps ADD COLUMN IF NOT EXISTS server_host VARCHAR(255)");
+      stmt.execute("ALTER TABLE warps ADD COLUMN IF NOT EXISTS server_port INTEGER");
       stmt.execute(inventoriesSql);
     } catch (SQLException e) {
       throw new RuntimeException("Failed to initialize schema", e);

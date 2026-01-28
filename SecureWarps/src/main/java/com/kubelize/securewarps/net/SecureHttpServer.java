@@ -1,11 +1,11 @@
 package com.kubelize.securewarps.net;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hypixel.hytale.server.core.Message;
 import com.kubelize.securewarps.config.HttpServerConfig;
 import com.kubelize.securewarps.db.DatabaseManager;
 import com.kubelize.securewarps.db.WarpRecord;
-import com.sun.net.httpserver.Headers;
+import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.server.core.util.concurrent.ThreadUtil;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpsConfigurator;
@@ -26,7 +26,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
@@ -34,18 +33,19 @@ import javax.net.ssl.TrustManagerFactory;
 public class SecureHttpServer implements AutoCloseable {
   private final HttpServerConfig config;
   private final DatabaseManager databaseManager;
-  private final Logger logger;
+  private final HytaleLogger logger;
   private final ObjectMapper mapper = new ObjectMapper();
-  private final NonceCache nonceCache = new NonceCache();
+  private final NonceCache nonceCache;
   private HttpsServer server;
   private ScheduledExecutorService noncePruner;
   private String sharedSecret;
 
-  public SecureHttpServer(HttpServerConfig config, DatabaseManager databaseManager, Logger logger) {
+  public SecureHttpServer(HttpServerConfig config, DatabaseManager databaseManager, HytaleLogger logger) {
     this.config = config;
     this.databaseManager = databaseManager;
     this.logger = logger;
     this.sharedSecret = resolveSharedSecret();
+    this.nonceCache = new NonceCache(config.getMaxNonceEntries());
   }
 
   public void start() throws Exception {
@@ -67,7 +67,7 @@ public class SecureHttpServer implements AutoCloseable {
     server.createContext("/warps", new WarpsHandler());
     server.createContext("/warps/", new WarpsHandler());
 
-    server.setExecutor(Executors.newFixedThreadPool(Math.max(2, config.getThreadPoolSize())));
+    server.setExecutor(Executors.newFixedThreadPool(Math.max(2, config.getThreadPoolSize()), ThreadUtil.daemonCounted("SecureWarps-HTTP")));
     server.start();
 
     noncePruner = Executors.newSingleThreadScheduledExecutor();
@@ -171,7 +171,7 @@ public class SecureHttpServer implements AutoCloseable {
   }
 
   private void handleUpsert(HttpExchange exchange) throws IOException {
-    byte[] body = readBody(exchange, config.getMaxBodyBytes());
+    byte[] body = maybeReadBody(exchange, config.getMaxBodyBytes());
     WarpRecord warp = mapper.readValue(body, WarpRecord.class);
 
     if (warp.name() == null || warp.name().isBlank()) {
@@ -189,7 +189,9 @@ public class SecureHttpServer implements AutoCloseable {
         warp.z(),
         warp.rotX(),
         warp.rotY(),
-        warp.rotZ()
+        warp.rotZ(),
+        warp.serverHost(),
+        warp.serverPort()
     );
 
     databaseManager.saveWarp(normalized)
@@ -220,11 +222,11 @@ public class SecureHttpServer implements AutoCloseable {
       return false;
     }
 
-    byte[] body = readBody(exchange, config.getMaxBodyBytes());
+    byte[] body = maybeReadBody(exchange, config.getMaxBodyBytes());
     String bodyHash = HttpAuth.sha256Hex(body);
     String expected = HttpAuth.sign(sharedSecret, exchange.getRequestMethod(), exchange.getRequestURI().getPath(), timestamp, nonce, bodyHash);
 
-    if (!expected.equalsIgnoreCase(signature)) {
+    if (!HttpAuth.constantTimeEquals(expected, signature)) {
       return false;
     }
 
@@ -232,10 +234,17 @@ public class SecureHttpServer implements AutoCloseable {
     return true;
   }
 
-  private static byte[] readBody(HttpExchange exchange, int maxBytes) throws IOException {
+  private static byte[] maybeReadBody(HttpExchange exchange, int maxBytes) throws IOException {
     Object cached = exchange.getAttribute("cachedBody");
     if (cached instanceof byte[] bytes) {
       return bytes;
+    }
+
+    String method = exchange.getRequestMethod();
+    String contentLength = exchange.getRequestHeaders().getFirst("Content-Length");
+    boolean hasBody = contentLength != null && !contentLength.equals("0");
+    if (!hasBody && ("GET".equalsIgnoreCase(method) || "DELETE".equalsIgnoreCase(method))) {
+      return new byte[0];
     }
 
     try (InputStream in = exchange.getRequestBody(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {

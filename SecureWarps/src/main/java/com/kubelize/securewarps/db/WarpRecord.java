@@ -12,5 +12,7 @@ public record WarpRecord(
     double z,
     float rotX,
     float rotY,
-    float rotZ
+    float rotZ,
+    String serverHost,
+    Integer serverPort
 ) {}

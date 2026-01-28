@@ -2,9 +2,11 @@ package com.kubelize.securewarps;
 
 import com.hypixel.hytale.server.core.event.events.player.PlayerDisconnectEvent;
 import com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent;
+import com.hypixel.hytale.server.core.event.events.player.PlayerSetupConnectEvent;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hypixel.hytale.server.core.util.Config;
+import com.kubelize.securewarps.commands.RemoteWarpCommand;
 import com.kubelize.securewarps.commands.WarpCommand;
 import com.kubelize.securewarps.commands.inventory.InventoryAdminCommand;
 import com.kubelize.securewarps.config.SecureWarpsConfig;
@@ -12,6 +14,7 @@ import com.kubelize.securewarps.db.DatabaseManager;
 import com.kubelize.securewarps.inventory.InventorySyncService;
 import com.kubelize.securewarps.net.SecureHttpClient;
 import com.kubelize.securewarps.net.SecureHttpServer;
+import com.kubelize.securewarps.teleport.CrossServerWarpListener;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.logging.Level;
@@ -22,17 +25,29 @@ public class SecureWarpsPlugin extends JavaPlugin {
   private SecureHttpClient httpClient;
   private SecureHttpServer httpServer;
   private InventorySyncService inventorySyncService;
+  private CrossServerWarpListener crossServerWarpListener;
 
   public SecureWarpsPlugin(JavaPluginInit init) {
     super(init);
+    this.config = this.withConfig("SecureWarps", SecureWarpsConfig.CODEC);
   }
 
   @Override
   protected void setup() {
-    this.config = this.withConfig("SecureWarps", SecureWarpsConfig.CODEC);
-    saveDefaultConfigIfNeeded();
+    try {
+      saveDefaultConfigIfNeeded();
+    } catch (Exception e) {
+      getLogger().at(Level.SEVERE).withCause(e).log("[SecureWarps] Failed to write default config.");
+      return;
+    }
 
-    SecureWarpsConfig cfg = this.config.get();
+    SecureWarpsConfig cfg;
+    try {
+      cfg = this.config.get();
+    } catch (Exception e) {
+      getLogger().at(Level.SEVERE).withCause(e).log("[SecureWarps] Failed to load config.");
+      return;
+    }
     this.databaseManager = new DatabaseManager(cfg.getDatabase(), getLogger());
 
     try {
@@ -47,6 +62,10 @@ public class SecureWarpsPlugin extends JavaPlugin {
     this.inventorySyncService.start();
     getEventRegistry().registerGlobal(PlayerReadyEvent.class, inventorySyncService::onPlayerReady);
     getEventRegistry().registerGlobal(PlayerDisconnectEvent.class, inventorySyncService::onPlayerDisconnect);
+
+    this.crossServerWarpListener = new CrossServerWarpListener(databaseManager);
+    getEventRegistry().registerGlobal(PlayerSetupConnectEvent.class, crossServerWarpListener::onSetupConnect);
+    getEventRegistry().registerGlobal(PlayerReadyEvent.class, crossServerWarpListener::onPlayerReady);
 
     if (cfg.getHttpClient().getBaseUrl() != null && !cfg.getHttpClient().getBaseUrl().isBlank()) {
       try {
@@ -66,7 +85,8 @@ public class SecureWarpsPlugin extends JavaPlugin {
       }
     }
 
-    getCommandRegistry().registerCommand(new WarpCommand(databaseManager, cfg.getPermissions()));
+    getCommandRegistry().registerCommand(new WarpCommand(databaseManager, cfg.getServer(), cfg.getPermissions()));
+    getCommandRegistry().registerCommand(new RemoteWarpCommand(databaseManager, cfg.getServer(), cfg.getPermissions()));
     getCommandRegistry().registerCommand(new InventoryAdminCommand(databaseManager, cfg.getPermissions()));
 
     getLogger().at(Level.INFO).log("[SecureWarps] SecureWarps enabled.");
@@ -86,9 +106,16 @@ public class SecureWarpsPlugin extends JavaPlugin {
   }
 
   private void saveDefaultConfigIfNeeded() {
-    Path configPath = this.getDataDirectory().resolve("SecureWarps.json");
-    if (Files.notExists(configPath)) {
-      this.config.save();
+    Path dataDir = this.getDataDirectory();
+    Path configPath = dataDir.resolve("SecureWarps.json");
+    try {
+      Files.createDirectories(dataDir);
+      if (Files.notExists(configPath)) {
+        this.config.save();
+        getLogger().at(Level.INFO).log("[SecureWarps] Wrote default config to " + configPath);
+      }
+    } catch (Exception e) {
+      getLogger().at(Level.WARNING).withCause(e).log("[SecureWarps] Failed to write config to " + configPath);
     }
   }
 }

@@ -7,7 +7,12 @@ import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredAr
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgumentType;
 import com.kubelize.securewarps.db.DatabaseManager;
+import com.kubelize.securewarps.util.ErrorUtil;
+import com.kubelize.securewarps.util.GameThread;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.annotation.Nonnull;
 
 public class InventoryDeleteCommand extends AbstractCommand {
@@ -22,17 +27,18 @@ public class InventoryDeleteCommand extends AbstractCommand {
   }
 
   @Override
-  protected void execute(@Nonnull CommandContext commandContext) {
+  protected CompletableFuture<Void> execute(@Nonnull CommandContext commandContext) {
     UUID uuid = uuidArg.get(commandContext);
     if (uuid == null) {
       commandContext.sendMessage(Message.raw("UUID is required."));
-      return;
+      return CompletableFuture.completedFuture(null);
     }
 
-    databaseManager.deleteInventory(uuid)
-        .thenAccept(deleted -> commandContext.sendMessage(Message.raw(deleted ? "Inventory deleted." : "No inventory found.")))
+    return databaseManager.deleteInventory(uuid)
+        .thenAccept(deleted -> GameThread.run(commandContext, () -> commandContext.sendMessage(Message.raw(deleted ? "Inventory deleted." : "No inventory found."))))
         .exceptionally(err -> {
-          commandContext.sendMessage(Message.raw("Failed to delete inventory."));
+          Logger.getLogger(getClass().getName()).log(Level.WARNING, "Failed to delete inventory for " + uuid, ErrorUtil.rootCause(err));
+          GameThread.run(commandContext, () -> commandContext.sendMessage(Message.raw(ErrorUtil.isTimeout(err) ? "Inventory delete timed out." : "Failed to delete inventory.")));
           return null;
         });
   }

@@ -1,6 +1,5 @@
 plugins {
   id 'java'
-  id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 group = 'com.kubelize'
@@ -29,10 +28,15 @@ tasks.withType(JavaCompile).configureEach {
   options.encoding = 'UTF-8'
 }
 
-tasks.jar {
-  enabled = false
+tasks.withType(AbstractArchiveTask).configureEach {
+  preserveFileTimestamps = false
+  reproducibleFileOrder = true
 }
 
-tasks.shadowJar {
+tasks.jar {
   archiveClassifier.set('')
+  duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+  from {
+    configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+  }
 }

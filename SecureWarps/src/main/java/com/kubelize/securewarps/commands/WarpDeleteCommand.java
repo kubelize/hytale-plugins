@@ -12,6 +12,10 @@ import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.kubelize.securewarps.db.DatabaseManager;
+import com.kubelize.securewarps.util.ErrorUtil;
+import com.kubelize.securewarps.util.GameThread;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.annotation.Nonnull;
 import org.checkerframework.checker.nullness.compatqual.NonNullDecl;
 
@@ -39,9 +43,10 @@ public class WarpDeleteCommand extends AbstractPlayerCommand {
     }
 
     databaseManager.deleteWarpByName(name)
-        .thenAccept(deleted -> playerRef.sendMessage(Message.raw(deleted ? "Warp deleted: " + name : "Warp not found: " + name)))
+        .thenAccept(deleted -> GameThread.run(playerRef, () -> playerRef.sendMessage(Message.raw(deleted ? "Warp deleted: " + name : "Warp not found: " + name))))
         .exceptionally(err -> {
-          playerRef.sendMessage(Message.raw("Failed to delete warp: " + name));
+          Logger.getLogger(getClass().getName()).log(Level.WARNING, "Failed to delete warp " + name, ErrorUtil.rootCause(err));
+          GameThread.run(playerRef, () -> playerRef.sendMessage(Message.raw(ErrorUtil.isTimeout(err) ? "Warp delete timed out." : "Failed to delete warp: " + name)));
           return null;
         });
   }

@@ -10,26 +10,36 @@ import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredAr
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgumentType;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractPlayerCommand;
+import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.modules.entity.teleport.Teleport;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
+import com.kubelize.securewarps.config.ServerConfig;
 import com.kubelize.securewarps.db.DatabaseManager;
 import com.kubelize.securewarps.db.WarpRecord;
+import com.kubelize.securewarps.inventory.InventorySnapshotUtil;
+import com.kubelize.securewarps.util.ErrorUtil;
+import com.kubelize.securewarps.util.GameThread;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.annotation.Nonnull;
 import org.checkerframework.checker.nullness.compatqual.NonNullDecl;
 
 public class WarpGoCommand extends AbstractPlayerCommand {
   private final DatabaseManager databaseManager;
+  private final ServerConfig serverConfig;
   @Nonnull
   private final RequiredArg<String> nameArg = this.withRequiredArg("name", "Warp name", (ArgumentType) ArgTypes.STRING);
 
-  public WarpGoCommand(DatabaseManager databaseManager, String permission) {
+  public WarpGoCommand(DatabaseManager databaseManager, ServerConfig serverConfig, String permission) {
     super("go", "Teleport to a warp");
     this.databaseManager = databaseManager;
+    this.serverConfig = serverConfig;
     this.requirePermission(permission);
   }
 
@@ -46,10 +56,11 @@ public class WarpGoCommand extends AbstractPlayerCommand {
     }
 
     databaseManager.getWarpByName(name)
-        .thenCompose(result -> resolveWarpWorld(result))
-        .thenAccept(result -> handleTeleport(store, ref, playerRef, name, result))
+        .thenCompose(this::resolveWarpWorld)
+        .thenAccept(result -> GameThread.run(playerRef, () -> handleTeleport(store, ref, playerRef, name, result)))
         .exceptionally(err -> {
-          playerRef.sendMessage(Message.raw("Failed to load warp: " + name));
+          Logger.getLogger(getClass().getName()).log(Level.WARNING, "Failed to load warp " + name, ErrorUtil.rootCause(err));
+          GameThread.run(playerRef, () -> playerRef.sendMessage(Message.raw(ErrorUtil.isTimeout(err) ? "Warp lookup timed out." : "Failed to load warp: " + name)));
           return null;
         });
   }
@@ -83,6 +94,10 @@ public class WarpGoCommand extends AbstractPlayerCommand {
     }
 
     WarpRecord warp = result.get();
+    if (isRemoteWarp(warp)) {
+      playerRef.sendMessage(Message.raw("Warp is on a remote server. Use /rwarp " + name));
+      return;
+    }
     World targetWorld = Universe.get().getWorld(warp.worldId());
     if (targetWorld == null) {
       playerRef.sendMessage(Message.raw("Warp world not loaded: " + warp.worldId()));
@@ -94,5 +109,19 @@ public class WarpGoCommand extends AbstractPlayerCommand {
     Teleport teleport = Teleport.createForPlayer(targetWorld, position, rotation);
     store.putComponent(ref, Teleport.getComponentType(), teleport);
     playerRef.sendMessage(Message.raw("Teleported to warp: " + name));
+  }
+
+  private boolean isRemoteWarp(WarpRecord warp) {
+    String host = warp.serverHost();
+    Integer port = warp.serverPort();
+    if (host == null || host.isBlank() || port == null || port <= 0) {
+      return false;
+    }
+    String localHost = serverConfig.getHost();
+    int localPort = serverConfig.getPort();
+    if (localHost == null || localHost.isBlank() || localPort <= 0) {
+      return false;
+    }
+    return !(host.equalsIgnoreCase(localHost) && port == localPort);
   }
 }

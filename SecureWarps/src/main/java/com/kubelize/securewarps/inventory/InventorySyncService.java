@@ -5,25 +5,27 @@ import com.hypixel.hytale.server.core.event.events.player.PlayerDisconnectEvent;
 import com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent;
 import com.hypixel.hytale.server.core.inventory.Inventory;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
-import com.hypixel.hytale.server.core.universe.Universe;
+import com.hypixel.hytale.logger.HytaleLogger;
 import com.kubelize.securewarps.config.InventoryConfig;
 import com.kubelize.securewarps.db.DatabaseManager;
-import java.util.List;
+import com.kubelize.securewarps.util.GameThread;
+import com.hypixel.hytale.server.core.util.concurrent.ThreadUtil;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
-import java.util.logging.Logger;
 import org.bson.BsonDocument;
 
 public class InventorySyncService implements AutoCloseable {
   private final InventoryConfig config;
   private final DatabaseManager databaseManager;
-  private final Logger logger;
+  private final HytaleLogger logger;
   private ScheduledExecutorService scheduler;
+  private final ConcurrentHashMap<UUID, PlayerRef> activePlayers = new ConcurrentHashMap<>();
 
-  public InventorySyncService(InventoryConfig config, DatabaseManager databaseManager, Logger logger) {
+  public InventorySyncService(InventoryConfig config, DatabaseManager databaseManager, HytaleLogger logger) {
     this.config = config;
     this.databaseManager = databaseManager;
     this.logger = logger;
@@ -33,18 +35,23 @@ public class InventorySyncService implements AutoCloseable {
     if (!config.isEnabled() || !config.isSavePeriodically()) {
       return;
     }
-    scheduler = Executors.newSingleThreadScheduledExecutor();
+    scheduler = Executors.newSingleThreadScheduledExecutor(ThreadUtil.daemonCounted("SecureWarps-InvSave"));
     int interval = Math.max(10, config.getSaveIntervalSeconds());
     scheduler.scheduleAtFixedRate(this::saveAllPlayersSafe, interval, interval, TimeUnit.SECONDS);
   }
 
   public void onPlayerReady(PlayerReadyEvent event) {
-    if (!config.isEnabled() || !config.isLoadOnReady()) {
+    if (!config.isEnabled()) {
       return;
     }
     Player player = event.getPlayer();
     PlayerRef playerRef = player.getPlayerRef();
     UUID uuid = playerRef.getUuid();
+    activePlayers.put(uuid, playerRef);
+
+    if (!config.isLoadOnReady()) {
+      return;
+    }
 
     databaseManager.loadInventory(uuid)
         .thenAccept(optional -> {
@@ -52,8 +59,14 @@ public class InventorySyncService implements AutoCloseable {
             return;
           }
           Inventory restored = optional.get();
-          player.setInventory(restored);
-          player.sendInventory();
+          GameThread.run(playerRef, () -> {
+            Player live = playerRef.getComponent(Player.getComponentType());
+            if (live == null) {
+              return;
+            }
+            live.setInventory(restored);
+            live.sendInventory();
+          });
         })
         .exceptionally(err -> {
           logger.at(Level.WARNING).withCause(err).log("[SecureWarps] Failed to load inventory for " + uuid);
@@ -62,26 +75,36 @@ public class InventorySyncService implements AutoCloseable {
   }
 
   public void onPlayerDisconnect(PlayerDisconnectEvent event) {
-    if (!config.isEnabled() || !config.isSaveOnDisconnect()) {
+    if (!config.isEnabled()) {
       return;
     }
     PlayerRef ref = event.getPlayerRef();
-    Player player = ref.getComponent(Player.getComponentType());
-    if (player == null) {
+    activePlayers.remove(ref.getUuid());
+    if (!config.isSaveOnDisconnect()) {
       return;
     }
-    savePlayerInventory(player);
+    GameThread.run(ref, () -> {
+      Player player = ref.getComponent(Player.getComponentType());
+      if (player == null) {
+        return;
+      }
+      savePlayerInventory(player);
+    });
   }
 
   private void saveAllPlayersSafe() {
     try {
-      List<PlayerRef> players = Universe.get().getPlayers();
-      for (PlayerRef ref : players) {
-        Player player = ref.getComponent(Player.getComponentType());
-        if (player == null) {
+      for (PlayerRef ref : activePlayers.values()) {
+        if (ref == null || !ref.isValid()) {
           continue;
         }
-        savePlayerInventory(player);
+        GameThread.run(ref, () -> {
+          Player player = ref.getComponent(Player.getComponentType());
+          if (player == null) {
+            return;
+          }
+          savePlayerInventory(player);
+        });
       }
     } catch (Exception e) {
       logger.at(Level.WARNING).withCause(e).log("[SecureWarps] Periodic inventory save failed");
