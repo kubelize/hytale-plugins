@@ -1,0 +1,20 @@
+{
+  "Group": "com.kubelize",
+  "Name": "SecureWarps",
+  "Version": "0.1.0",
+  "Description": "SecureWarps asset overrides",
+  "Authors": [
+    {
+      "Name": "kubelize",
+      "Email": "",
+      "Url": ""
+    }
+  ],
+  "Website": "https://kubelize.com",
+  "Main": "com.kubelize.securewarps.SecureWarpsPlugin",
+  "ServerVersion": "*",
+  "Dependencies": {},
+  "OptionalDependencies": {},
+  "DisabledByDefault": false,
+  "IncludesAssetPack": false
+}

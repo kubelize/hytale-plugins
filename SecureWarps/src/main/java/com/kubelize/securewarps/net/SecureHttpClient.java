@@ -6,6 +6,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.time.Duration;
 import java.time.Instant;
@@ -50,7 +51,7 @@ public class SecureHttpClient {
     if (sharedSecret != null && !sharedSecret.isBlank()) {
       String timestamp = String.valueOf(Instant.now().getEpochSecond());
       String nonce = UUID.randomUUID().toString();
-      String bodyHash = HttpAuth.sha256Hex(payload.getBytes());
+      String bodyHash = HttpAuth.sha256Hex(payload.getBytes(StandardCharsets.UTF_8));
       String signature = HttpAuth.sign(sharedSecret, method, path, timestamp, nonce, bodyHash);
       builder.header(HttpAuth.HEADER_TIMESTAMP, timestamp);
       builder.header(HttpAuth.HEADER_NONCE, nonce);

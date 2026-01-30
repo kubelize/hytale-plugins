@@ -14,6 +14,10 @@ import com.kubelize.securewarps.db.DatabaseManager;
 import com.kubelize.securewarps.inventory.InventorySyncService;
 import com.kubelize.securewarps.net.SecureHttpClient;
 import com.kubelize.securewarps.net.SecureHttpServer;
+import com.kubelize.securewarps.portal.PortalBootstrap;
+import com.kubelize.securewarps.portal.PortalRuntime;
+import com.kubelize.securewarps.portal.PortalTargetActivationService;
+import com.kubelize.securewarps.portal.TeleporterWarpSyncService;
 import com.kubelize.securewarps.teleport.CrossServerWarpListener;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,6 +30,8 @@ public class SecureWarpsPlugin extends JavaPlugin {
   private SecureHttpServer httpServer;
   private InventorySyncService inventorySyncService;
   private CrossServerWarpListener crossServerWarpListener;
+  private TeleporterWarpSyncService teleporterWarpSyncService;
+  private PortalTargetActivationService portalTargetActivationService;
 
   public SecureWarpsPlugin(JavaPluginInit init) {
     super(init);
@@ -36,6 +42,7 @@ public class SecureWarpsPlugin extends JavaPlugin {
   protected void setup() {
     try {
       saveDefaultConfigIfNeeded();
+      exportAssetPackIfNeeded();
     } catch (Exception e) {
       getLogger().at(Level.SEVERE).withCause(e).log("[SecureWarps] Failed to write default config.");
       return;
@@ -58,6 +65,13 @@ public class SecureWarpsPlugin extends JavaPlugin {
       return;
     }
 
+    PortalRuntime.init(databaseManager, cfg.getServer(), cfg.getPermissions(), getLogger());
+    PortalBootstrap.register(this);
+    this.teleporterWarpSyncService = new TeleporterWarpSyncService(databaseManager);
+    this.teleporterWarpSyncService.start();
+    this.portalTargetActivationService = new PortalTargetActivationService(databaseManager, getLogger());
+    this.portalTargetActivationService.start();
+
     this.inventorySyncService = new InventorySyncService(cfg.getInventory(), databaseManager, getLogger());
     this.inventorySyncService.start();
     getEventRegistry().registerGlobal(PlayerReadyEvent.class, inventorySyncService::onPlayerReady);
@@ -66,6 +80,7 @@ public class SecureWarpsPlugin extends JavaPlugin {
     this.crossServerWarpListener = new CrossServerWarpListener(databaseManager);
     getEventRegistry().registerGlobal(PlayerSetupConnectEvent.class, crossServerWarpListener::onSetupConnect);
     getEventRegistry().registerGlobal(PlayerReadyEvent.class, crossServerWarpListener::onPlayerReady);
+    getEventRegistry().registerGlobal(PlayerDisconnectEvent.class, crossServerWarpListener::onPlayerDisconnect);
 
     if (cfg.getHttpClient().getBaseUrl() != null && !cfg.getHttpClient().getBaseUrl().isBlank()) {
       try {
@@ -100,6 +115,12 @@ public class SecureWarpsPlugin extends JavaPlugin {
     if (this.inventorySyncService != null) {
       this.inventorySyncService.close();
     }
+    if (this.teleporterWarpSyncService != null) {
+      this.teleporterWarpSyncService.close();
+    }
+    if (this.portalTargetActivationService != null) {
+      this.portalTargetActivationService.close();
+    }
     if (this.databaseManager != null) {
       this.databaseManager.close();
     }
@@ -116,6 +137,49 @@ public class SecureWarpsPlugin extends JavaPlugin {
       }
     } catch (Exception e) {
       getLogger().at(Level.WARNING).withCause(e).log("[SecureWarps] Failed to write config to " + configPath);
+    }
+  }
+
+  private void exportAssetPackIfNeeded() {
+    Path dataDir = this.getDataDirectory();
+    try {
+      Files.createDirectories(dataDir);
+    } catch (Exception e) {
+      getLogger().at(Level.WARNING).withCause(e).log("[SecureWarps] Failed to create data directory for asset pack.");
+      return;
+    }
+
+    copyResourceToFile("/assetpack-manifest.json", dataDir.resolve("manifest.json"), false);
+    copyResourceToFile(
+        "/Server/Item/Items/Electrum/Portal/Teleporter.json",
+        dataDir.resolve("Server/Item/Items/Electrum/Portal/Teleporter.json"),
+        true
+    );
+    copyResourceToFile(
+        "/Server/Item/Items/Portal/SecureWarp_Portal_Device.json",
+        dataDir.resolve("Server/Item/Items/Portal/SecureWarp_Portal_Device.json"),
+        true
+    );
+  }
+
+  private void copyResourceToFile(String resourcePath, Path target, boolean replace) {
+    try (var in = SecureWarpsPlugin.class.getResourceAsStream(resourcePath)) {
+      if (in == null) {
+        getLogger().at(Level.WARNING).log("[SecureWarps] Missing asset resource: " + resourcePath);
+        return;
+      }
+      Files.createDirectories(target.getParent());
+      if (!replace && Files.exists(target)) {
+        return;
+      }
+      if (replace) {
+        Files.copy(in, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+      } else {
+        Files.copy(in, target);
+      }
+    } catch (Exception e) {
+      getLogger().at(Level.WARNING).withCause(e)
+          .log("[SecureWarps] Failed to write asset resource: " + resourcePath);
     }
   }
 }

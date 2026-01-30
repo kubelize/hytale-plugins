@@ -33,9 +33,20 @@ tasks.withType(AbstractArchiveTask).configureEach {
   reproducibleFileOrder = true
 }
 
+tasks.named('processResources') {
+  exclude 'Assets/**'
+  exclude 'Common/**'
+  doFirst {
+    delete file("$buildDir/resources/main/Assets")
+    delete file("$buildDir/resources/main/Common")
+  }
+}
+
 tasks.jar {
   archiveClassifier.set('')
   duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+  exclude 'Assets/**'
+  exclude 'Common/**'
   from {
     configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
   }

@@ -68,7 +68,8 @@ SecureWarps/build/libs/SecureWarps-0.1.0.jar
   "MaxPoolSize": 10,
   "MinIdle": 2,
   "DbOperationTimeoutMillis": 5000,
-  "DbExecutorThreads": 4
+  "DbExecutorThreads": 4,
+  "DbExecutorQueueSize": 1000
 }
 ```
 
@@ -87,6 +88,15 @@ Notes:
   "SaveIntervalSeconds": 60
 }
 ```
+
+### Portals (placeable teleporters)
+
+SecureWarps attaches to the existing built-in portal items:
+
+- `Teleporter` — uses the built-in Teleporter dialog to select a warp name, but teleports using SecureWarps.
+- `Portal_Device` — uses the built-in Portal_Device dialog, but only admins can open it.
+
+Teleporting respects `securewarps.use`. Admin-only configuration uses `securewarps.admin`.
 
 Behavior:
 - Loads inventory on player ready.
@@ -233,7 +243,10 @@ Example `Database` section:
   "SslRootCert": "/path/to/ca.pem",
   "ConnectTimeoutMillis": 10000,
   "MaxPoolSize": 10,
-  "MinIdle": 2
+  "MinIdle": 2,
+  "DbOperationTimeoutMillis": 5000,
+  "DbExecutorThreads": 4,
+  "DbExecutorQueueSize": 1000
 }
 ```
 

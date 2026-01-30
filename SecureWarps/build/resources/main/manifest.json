@@ -12,6 +12,6 @@
   "ServerVersion": "*",
   "Dependencies": {},
   "DisabledByDefault": false,
-  "IncludesAssetPack": false,
+  "IncludesAssetPack": true,
   "Main": "com.kubelize.securewarps.SecureWarpsPlugin"
 }

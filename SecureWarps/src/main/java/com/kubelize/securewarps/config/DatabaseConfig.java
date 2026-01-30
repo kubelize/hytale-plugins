@@ -23,6 +23,7 @@ public class DatabaseConfig {
           .append(new KeyedCodec<Integer>("MinIdle", Codec.INTEGER), (DatabaseConfig o, Integer i) -> o.minIdle = i, o -> o.minIdle).add()
           .append(new KeyedCodec<Integer>("DbOperationTimeoutMillis", Codec.INTEGER), (DatabaseConfig o, Integer i) -> o.dbOperationTimeoutMillis = i, o -> o.dbOperationTimeoutMillis).add()
           .append(new KeyedCodec<Integer>("DbExecutorThreads", Codec.INTEGER), (DatabaseConfig o, Integer i) -> o.dbExecutorThreads = i, o -> o.dbExecutorThreads).add()
+          .append(new KeyedCodec<Integer>("DbExecutorQueueSize", Codec.INTEGER), (DatabaseConfig o, Integer i) -> o.dbExecutorQueueSize = i, o -> o.dbExecutorQueueSize).add()
           .build();
 
   private String host = "localhost";
@@ -44,6 +45,7 @@ public class DatabaseConfig {
   private int minIdle = 2;
   private int dbOperationTimeoutMillis = 5000;
   private int dbExecutorThreads = 4;
+  private int dbExecutorQueueSize = 1000;
 
   public String getHost() {
     return host;
@@ -107,5 +109,9 @@ public class DatabaseConfig {
 
   public int getDbExecutorThreads() {
     return dbExecutorThreads;
+  }
+
+  public int getDbExecutorQueueSize() {
+    return dbExecutorQueueSize;
   }
 }

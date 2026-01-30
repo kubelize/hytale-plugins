@@ -1,0 +1,147 @@
+{
+  "TranslationProperties": {
+    "Name": "server.items.Portal_Device.name",
+    "Description": "server.items.Portal_Device.description"
+  },
+  "Icon": "Icons/ItemsGenerated/Portal_Device.png",
+  "Categories": [
+    "Blocks.Portals"
+  ],
+  "BlockType": {
+    "DrawType": "Model",
+    "Material": "Solid",
+    "Opacity": "Transparent",
+    "CustomModel": "Blocks/Miscellaneous/Platform_MagicInactive.blockymodel",
+    "CustomModelTexture": [
+      {
+        "Texture": "Blocks/Miscellaneous/Platform_Magic_Blue2.png",
+        "Weight": 1
+      }
+    ],
+    "BlockEntity": {
+      "Components": {
+        "Portal": {
+          "Config": {
+            "OnState": "Active",
+            "SpawningState": "Spawning",
+            "ReturnBlockType": "Portal_Return"
+          }
+        }
+      }
+    },
+    "HitboxType": "Pad_Portal",
+    "BlockParticleSetId": "Stone",
+    "BlockSoundSetId": "Stone",
+    "VariantRotation": "NESW",
+    "Flags": {
+      "IsUsable": true
+    },
+    "Gathering": {
+      "Breaking": {
+        "GatherType": "SoftBlocks"
+      }
+    },
+    "State": {
+      "Definitions": {
+        "Spawning": {
+          "InteractionSoundEventId": "SFX_Portal_Neutral_Open",
+          "Gathering": {
+            "Breaking": {
+              "GatherType": "Unbreakable"
+            }
+          },
+          "Light": {
+            "Radius": 0,
+            "Color": "#7cc"
+          },
+          "Particles": [
+            {
+              "SystemId": "Portal_Going_Through_Blue",
+              "PositionOffset": {
+                "Y": 1
+              }
+            }
+          ],
+          "CustomModelAnimation": "Blocks/Miscellaneous/Platform_Magic_Activate.blockyanim"
+        },
+        "Active": {
+          "AmbientSoundEventId": "SFX_Portal_Neutral",
+          "Gathering": {
+            "Breaking": {
+              "GatherType": "Unbreakable"
+            }
+          },
+          "Light": {
+            "Radius": 0,
+            "Color": "#7cc"
+          },
+          "Particles": [
+            {
+              "SystemId": "MagicPortal",
+              "PositionOffset": {
+                "Y": 2.0
+              },
+              "Scale": 0.8
+            },
+            {
+              "SystemId": "MagicPortal_Stones",
+              "TargetEntityPart": "Self",
+              "TargetNodeName": "Debris"
+            },
+            {
+              "SystemId": "MagicPortal_Stones",
+              "TargetEntityPart": "Self",
+              "TargetNodeName": "Debris6"
+            }
+          ],
+          "Interactions": {
+            "CollisionEnter": {
+              "Interactions": [
+                {
+                  "Type": "SecureWarpsPortalDeviceTeleport"
+                }
+              ]
+            }
+          },
+          "CustomModel": "Blocks/Miscellaneous/Platform_MagicInactive.blockymodel",
+          "CustomModelAnimation": "Blocks/Miscellaneous/Platform_Magic_Idle.blockyanim"
+        }
+      }
+    },
+    "Interactions": {
+      "Use": {
+        "Interactions": [
+          {
+            "Type": "SecureWarpsPortalDeviceAdminUse"
+          }
+        ]
+      }
+    },
+    "Light": {
+      "Color": "#a3f",
+      "Radius": 2
+    }
+  },
+  "PlayerAnimationsId": "Block",
+  "Tags": {
+    "Type": [
+      "Portal"
+    ]
+  },
+  "Quality": "Rare",
+  "MaxStack": 1,
+  "ItemLevel": 50,
+  "IconProperties": {
+    "Scale": 0.35,
+    "Rotation": [
+      22.5,
+      45.0,
+      22.5
+    ],
+    "Translation": [
+      0.0,
+      -13.5
+    ]
+  },
+  "ItemSoundSetId": "ISS_Blocks_Stone"
+}

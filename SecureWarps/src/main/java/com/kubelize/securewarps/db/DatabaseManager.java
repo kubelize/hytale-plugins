@@ -17,10 +17,12 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
+import java.util.concurrent.TimeoutException;
 import java.util.logging.Level;
 import org.bson.BsonDocument;
 
@@ -59,7 +61,7 @@ public class DatabaseManager implements AutoCloseable {
 
       hikari.setDataSourceProperties(dsProps);
 
-      this.executor = Executors.newFixedThreadPool(Math.max(2, config.getDbExecutorThreads()), ThreadUtil.daemonCounted("SecureWarps-DB"));
+      this.executor = createDbExecutor();
       this.dataSource = new HikariDataSource(hikari);
 
       logger.at(Level.INFO).log("[SecureWarps] Database initialized with TLS mode: " + safe(sslMode));
@@ -87,7 +89,7 @@ public class DatabaseManager implements AutoCloseable {
         + "  server_port = EXCLUDED.server_port,\n"
         + "  updated_at = CURRENT_TIMESTAMP";
 
-    return CompletableFuture.runAsync(() -> {
+    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
       try (Connection conn = dataSource.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
         stmt.setObject(1, warp.id());
         stmt.setString(2, warp.name());
@@ -109,12 +111,13 @@ public class DatabaseManager implements AutoCloseable {
       } catch (SQLException e) {
         throw new RuntimeException("Failed to save warp: " + warp.name(), e);
       }
-    }, executor).orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+    }, executor);
+    return withTimeout(future, "saveWarp");
   }
 
   public CompletableFuture<Boolean> updateWarpServer(String name, String host, int port) {
     String sql = "UPDATE warps SET server_host = ?, server_port = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?";
-    return CompletableFuture.supplyAsync(() -> {
+    CompletableFuture<Boolean> future = CompletableFuture.supplyAsync(() -> {
       try (Connection conn = dataSource.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
         stmt.setString(1, host);
         stmt.setInt(2, port);
@@ -124,7 +127,8 @@ public class DatabaseManager implements AutoCloseable {
       } catch (SQLException e) {
         throw new RuntimeException("Failed to update warp server: " + name, e);
       }
-    }, executor).orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+    }, executor);
+    return withTimeout(future, "updateWarpServer");
   }
 
   public CompletableFuture<Optional<WarpRecord>> getWarpByName(String name) {
@@ -156,12 +160,12 @@ public class DatabaseManager implements AutoCloseable {
         throw new RuntimeException("Failed to fetch warp: " + name, e);
       }
     }, executor);
-    return future.orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+    return withTimeout(future, "getWarpByName");
   }
 
   public CompletableFuture<List<WarpRecord>> listWarps() {
     String sql = "SELECT id, name, owner_uuid, world_id, x, y, z, rot_x, rot_y, rot_z, server_host, server_port FROM warps ORDER BY name";
-    return CompletableFuture.supplyAsync(() -> {
+    CompletableFuture<List<WarpRecord>> future = CompletableFuture.supplyAsync(() -> {
       List<WarpRecord> results = new ArrayList<>();
       try (Connection conn = dataSource.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
         try (ResultSet rs = stmt.executeQuery()) {
@@ -187,19 +191,90 @@ public class DatabaseManager implements AutoCloseable {
         throw new RuntimeException("Failed to list warps", e);
       }
       return results;
-    }, executor).orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+    }, executor);
+    return withTimeout(future, "listWarps");
   }
 
   public CompletableFuture<Boolean> deleteWarpByName(String name) {
     String sql = "DELETE FROM warps WHERE name = ?";
-    return CompletableFuture.supplyAsync(() -> {
+    CompletableFuture<Boolean> future = CompletableFuture.supplyAsync(() -> {
       try (Connection conn = dataSource.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
         stmt.setString(1, name);
         return stmt.executeUpdate() > 0;
       } catch (SQLException e) {
         throw new RuntimeException("Failed to delete warp: " + name, e);
       }
-    }, executor).orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+    }, executor);
+    return withTimeout(future, "deleteWarpByName");
+  }
+
+  public CompletableFuture<Void> savePortalTarget(String worldId, int x, int y, int z, String warpName) {
+    String sql = "INSERT INTO portal_targets (world_id, x, y, z, warp_name, updated_at)\n"
+        + "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)\n"
+        + "ON CONFLICT (world_id, x, y, z)\n"
+        + "DO UPDATE SET warp_name = EXCLUDED.warp_name, updated_at = CURRENT_TIMESTAMP";
+    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+      try (Connection conn = dataSource.getConnection();
+           PreparedStatement stmt = conn.prepareStatement(sql)) {
+        stmt.setString(1, worldId);
+        stmt.setInt(2, x);
+        stmt.setInt(3, y);
+        stmt.setInt(4, z);
+        stmt.setString(5, warpName);
+        stmt.executeUpdate();
+      } catch (SQLException e) {
+        throw new RuntimeException("Failed to save portal target: " + worldId + " " + x + "," + y + "," + z, e);
+      }
+    }, executor);
+    return withTimeout(future, "savePortalTarget");
+  }
+
+  public CompletableFuture<Optional<String>> getPortalTarget(String worldId, int x, int y, int z) {
+    String sql = "SELECT warp_name FROM portal_targets WHERE world_id = ? AND x = ? AND y = ? AND z = ?";
+    CompletableFuture<Optional<String>> future = CompletableFuture.supplyAsync(() -> {
+      try (Connection conn = dataSource.getConnection();
+           PreparedStatement stmt = conn.prepareStatement(sql)) {
+        stmt.setString(1, worldId);
+        stmt.setInt(2, x);
+        stmt.setInt(3, y);
+        stmt.setInt(4, z);
+        try (ResultSet rs = stmt.executeQuery()) {
+          if (!rs.next()) {
+            return Optional.empty();
+          }
+          return Optional.ofNullable(rs.getString("warp_name"));
+        }
+      } catch (SQLException e) {
+        throw new RuntimeException("Failed to fetch portal target: " + worldId + " " + x + "," + y + "," + z, e);
+      }
+    }, executor);
+    return withTimeout(future, "getPortalTarget");
+  }
+
+  public CompletableFuture<List<PortalTarget>> listPortalTargets(String worldId) {
+    String sql = "SELECT world_id, x, y, z, warp_name FROM portal_targets WHERE world_id = ?";
+    CompletableFuture<List<PortalTarget>> future = CompletableFuture.supplyAsync(() -> {
+      List<PortalTarget> results = new ArrayList<>();
+      try (Connection conn = dataSource.getConnection();
+           PreparedStatement stmt = conn.prepareStatement(sql)) {
+        stmt.setString(1, worldId);
+        try (ResultSet rs = stmt.executeQuery()) {
+          while (rs.next()) {
+            results.add(new PortalTarget(
+                rs.getString("world_id"),
+                rs.getInt("x"),
+                rs.getInt("y"),
+                rs.getInt("z"),
+                rs.getString("warp_name")
+            ));
+          }
+        }
+      } catch (SQLException e) {
+        throw new RuntimeException("Failed to list portal targets for world: " + worldId, e);
+      }
+      return results;
+    }, executor);
+    return withTimeout(future, "listPortalTargets");
   }
 
   public CompletableFuture<Void> saveInventory(UUID playerUuid, BsonDocument snapshot) {
@@ -209,7 +284,7 @@ public class DatabaseManager implements AutoCloseable {
         + "  data = EXCLUDED.data,\n"
         + "  updated_at = CURRENT_TIMESTAMP";
 
-    return CompletableFuture.runAsync(() -> {
+    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
       try (Connection conn = dataSource.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
         stmt.setObject(1, playerUuid);
         stmt.setString(2, snapshot.toJson());
@@ -217,7 +292,8 @@ public class DatabaseManager implements AutoCloseable {
       } catch (SQLException e) {
         throw new RuntimeException("Failed to save inventory for " + playerUuid, e);
       }
-    }, executor).orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+    }, executor);
+    return withTimeout(future, "saveInventory");
   }
 
   public CompletableFuture<Optional<com.hypixel.hytale.server.core.inventory.Inventory>> loadInventory(UUID playerUuid) {
@@ -237,19 +313,20 @@ public class DatabaseManager implements AutoCloseable {
         throw new RuntimeException("Failed to load inventory for " + playerUuid, e);
       }
     }, executor);
-    return future.orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+    return withTimeout(future, "loadInventory");
   }
 
   public CompletableFuture<Boolean> deleteInventory(UUID playerUuid) {
     String sql = "DELETE FROM inventories WHERE player_uuid = ?";
-    return CompletableFuture.supplyAsync(() -> {
+    CompletableFuture<Boolean> future = CompletableFuture.supplyAsync(() -> {
       try (Connection conn = dataSource.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
         stmt.setObject(1, playerUuid);
         return stmt.executeUpdate() > 0;
       } catch (SQLException e) {
         throw new RuntimeException("Failed to delete inventory for " + playerUuid, e);
       }
-    }, executor).orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS);
+    }, executor);
+    return withTimeout(future, "deleteInventory");
   }
 
   private void initializeSchema() {
@@ -276,12 +353,22 @@ public class DatabaseManager implements AutoCloseable {
         + "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n"
         + "  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n"
         + ")";
+    String portalTargetsSql = "CREATE TABLE IF NOT EXISTS portal_targets (\n"
+        + "  world_id VARCHAR(64) NOT NULL,\n"
+        + "  x INTEGER NOT NULL,\n"
+        + "  y INTEGER NOT NULL,\n"
+        + "  z INTEGER NOT NULL,\n"
+        + "  warp_name VARCHAR(64) NOT NULL,\n"
+        + "  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n"
+        + "  PRIMARY KEY (world_id, x, y, z)\n"
+        + ")";
 
     try (Connection conn = dataSource.getConnection(); Statement stmt = conn.createStatement()) {
       stmt.execute(warpsSql);
       stmt.execute("ALTER TABLE warps ADD COLUMN IF NOT EXISTS server_host VARCHAR(255)");
       stmt.execute("ALTER TABLE warps ADD COLUMN IF NOT EXISTS server_port INTEGER");
       stmt.execute(inventoriesSql);
+      stmt.execute(portalTargetsSql);
     } catch (SQLException e) {
       throw new RuntimeException("Failed to initialize schema", e);
     }
@@ -306,6 +393,45 @@ public class DatabaseManager implements AutoCloseable {
     if (value != null && !value.isBlank()) {
       props.setProperty(key, value);
     }
+  }
+
+  private ExecutorService createDbExecutor() {
+    int threads = Math.max(2, config.getDbExecutorThreads());
+    int queueSize = Math.max(100, config.getDbExecutorQueueSize());
+    ThreadPoolExecutor executor =
+        new ThreadPoolExecutor(
+            threads,
+            threads,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new java.util.concurrent.ArrayBlockingQueue<>(queueSize),
+            ThreadUtil.daemonCounted("SecureWarps-DB"),
+            (runnable, exec) -> {
+              logger.at(Level.WARNING)
+                  .log("[SecureWarps] DB executor queue full (active="
+                      + exec.getActiveCount()
+                      + ", queued="
+                      + exec.getQueue().size()
+                      + ")");
+              throw new RejectedExecutionException("DB task rejected (queue full)");
+            });
+    executor.prestartAllCoreThreads();
+    return executor;
+  }
+
+  private <T> CompletableFuture<T> withTimeout(CompletableFuture<T> future, String operation) {
+    return future.orTimeout(config.getDbOperationTimeoutMillis(), TimeUnit.MILLISECONDS)
+        .whenComplete((result, error) -> {
+          if (error == null) {
+            return;
+          }
+          Throwable cause = error instanceof CompletionException ? error.getCause() : error;
+          if (cause instanceof TimeoutException) {
+            logger.at(Level.WARNING)
+                .log("[SecureWarps] DB operation timed out (" + operation + ") after "
+                    + config.getDbOperationTimeoutMillis() + " ms");
+          }
+        });
   }
 
   private static String safe(String value) {
