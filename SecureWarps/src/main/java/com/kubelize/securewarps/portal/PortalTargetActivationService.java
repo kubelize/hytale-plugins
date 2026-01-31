@@ -1,12 +1,17 @@
 package com.kubelize.securewarps.portal;
 
+import com.hypixel.hytale.builtin.adventure.teleporter.component.Teleporter;
+import com.hypixel.hytale.component.Ref;
+import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.protocol.BlockPosition;
 import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
+import com.hypixel.hytale.server.core.universe.world.storage.ChunkStore;
 import com.kubelize.securewarps.db.DatabaseManager;
 import com.kubelize.securewarps.db.PortalTarget;
 import com.kubelize.securewarps.util.ErrorUtil;
+import com.hypixel.hytale.server.core.modules.block.BlockModule;
 import com.hypixel.hytale.server.core.util.concurrent.ThreadUtil;
 import java.util.List;
 import java.util.Map;
@@ -88,7 +93,27 @@ public final class PortalTargetActivationService {
       for (PortalTarget target : targets) {
         BlockPosition pos = new BlockPosition(target.x(), target.y(), target.z());
         PortalBlockStateUtil.setInteractionState(world, pos, "Active");
+        ensureTeleporterWarp(world, pos, target.warpName());
       }
     });
+  }
+
+  private void ensureTeleporterWarp(World world, BlockPosition pos, String warpName) {
+    if (warpName == null || warpName.isBlank()) {
+      return;
+    }
+    Ref<ChunkStore> blockEntityRef = BlockModule.getBlockEntity(world, pos.x, pos.y, pos.z);
+    if (blockEntityRef == null) {
+      return;
+    }
+    Store<ChunkStore> store = world.getChunkStore().getStore();
+    Teleporter teleporter = store.getComponent(blockEntityRef, Teleporter.getComponentType());
+    if (teleporter == null) {
+      teleporter = new Teleporter();
+      store.putComponent(blockEntityRef, Teleporter.getComponentType(), teleporter);
+    }
+    if (!warpName.equals(teleporter.getWarp())) {
+      teleporter.setWarp(warpName);
+    }
   }
 }

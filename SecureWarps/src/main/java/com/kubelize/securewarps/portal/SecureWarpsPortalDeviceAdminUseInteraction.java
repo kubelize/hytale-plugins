@@ -39,10 +39,10 @@ public class SecureWarpsPortalDeviceAdminUseInteraction extends SimpleInstantInt
     if (player == null) {
       return;
     }
-
     if (!player.hasPermission(PortalRuntime.permissions().getAdmin())) {
       return;
     }
+
     new SecureWarpsPortalDeviceConfigInteraction()
         .firstRun(interactionType, context, cooldownHandler);
   }

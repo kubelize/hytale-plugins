@@ -34,10 +34,9 @@ final class PortalWarpService {
   void teleport(Store<EntityStore> store,
                 Ref<EntityStore> ref,
                 PlayerRef playerRef,
-                Player player,
                 String warpName) {
     databaseManager.getWarpByName(warpName)
-        .thenAccept(result -> GameThread.run(playerRef, () -> handleTeleport(store, ref, playerRef, player, warpName, result)))
+        .thenAccept(result -> GameThread.run(playerRef, () -> handleTeleport(store, ref, playerRef, warpName, result)))
         .exceptionally(err -> {
           Logger.getLogger(getClass().getName()).log(Level.WARNING, "Failed to load warp " + warpName, ErrorUtil.rootCause(err));
           GameThread.run(playerRef, () -> playerRef.sendMessage(Message.raw(ErrorUtil.isTimeout(err)
@@ -50,9 +49,11 @@ final class PortalWarpService {
   private void handleTeleport(Store<EntityStore> store,
                               Ref<EntityStore> ref,
                               PlayerRef playerRef,
-                              Player player,
                               String name,
                               Optional<WarpRecord> result) {
+    if (playerRef == null || !playerRef.isValid()) {
+      return;
+    }
     if (result.isEmpty()) {
       playerRef.sendMessage(Message.raw("Warp not found or world unavailable: " + name));
       return;
@@ -60,7 +61,12 @@ final class PortalWarpService {
 
     WarpRecord warp = result.get();
     if (isRemoteWarp(warp)) {
-      handleRemoteTransfer(playerRef, player, warp);
+      Player live = playerRef.getComponent(Player.getComponentType());
+      if (live == null) {
+        playerRef.sendMessage(Message.raw("Player unavailable for transfer."));
+        return;
+      }
+      handleRemoteTransfer(playerRef, live, warp);
       return;
     }
 
@@ -116,7 +122,7 @@ final class PortalWarpService {
       return;
     }
 
-    databaseManager.saveInventory(player.getUuid(), InventorySnapshotUtil.encode(player.getInventory()))
+    databaseManager.saveInventory(playerRef.getUuid(), InventorySnapshotUtil.encode(player.getInventory()))
         .thenRun(() -> GameThread.run(playerRef, () -> {
           try {
             long now = System.currentTimeMillis();

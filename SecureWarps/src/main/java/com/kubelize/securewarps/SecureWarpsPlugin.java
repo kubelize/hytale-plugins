@@ -6,6 +6,9 @@ import com.hypixel.hytale.server.core.event.events.player.PlayerSetupConnectEven
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hypixel.hytale.server.core.util.Config;
+import com.hypixel.hytale.component.Ref;
+import com.hypixel.hytale.server.core.universe.PlayerRef;
+import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.kubelize.securewarps.commands.RemoteWarpCommand;
 import com.kubelize.securewarps.commands.WarpCommand;
 import com.kubelize.securewarps.commands.inventory.InventoryAdminCommand;
@@ -19,6 +22,7 @@ import com.kubelize.securewarps.portal.PortalRuntime;
 import com.kubelize.securewarps.portal.PortalTargetActivationService;
 import com.kubelize.securewarps.portal.TeleporterWarpSyncService;
 import com.kubelize.securewarps.teleport.CrossServerWarpListener;
+import com.kubelize.securewarps.teleport.WorldJoinCooldown;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.logging.Level;
@@ -76,9 +80,21 @@ public class SecureWarpsPlugin extends JavaPlugin {
     this.inventorySyncService.start();
     getEventRegistry().registerGlobal(PlayerReadyEvent.class, inventorySyncService::onPlayerReady);
     getEventRegistry().registerGlobal(PlayerDisconnectEvent.class, inventorySyncService::onPlayerDisconnect);
+    getEventRegistry().registerGlobal(PlayerReadyEvent.class, event -> {
+      Ref<EntityStore> ref = event.getPlayerRef();
+      if (ref == null || !ref.isValid()) {
+        return;
+      }
+      PlayerRef playerRef = ref.getStore().getComponent(ref, PlayerRef.getComponentType());
+      if (playerRef == null) {
+        return;
+      }
+      WorldJoinCooldown.markJoin(playerRef.getUuid());
+    });
 
     this.crossServerWarpListener = new CrossServerWarpListener(databaseManager);
     getEventRegistry().registerGlobal(PlayerSetupConnectEvent.class, crossServerWarpListener::onSetupConnect);
+    getEventRegistry().registerGlobal(PlayerSetupConnectEvent.class, event -> WorldJoinCooldown.markJoin(event.getUuid()));
     getEventRegistry().registerGlobal(PlayerReadyEvent.class, crossServerWarpListener::onPlayerReady);
     getEventRegistry().registerGlobal(PlayerDisconnectEvent.class, crossServerWarpListener::onPlayerDisconnect);
 
@@ -120,6 +136,9 @@ public class SecureWarpsPlugin extends JavaPlugin {
     }
     if (this.portalTargetActivationService != null) {
       this.portalTargetActivationService.close();
+    }
+    if (this.crossServerWarpListener != null) {
+      this.crossServerWarpListener.close();
     }
     if (this.databaseManager != null) {
       this.databaseManager.close();

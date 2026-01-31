@@ -17,6 +17,8 @@ import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.ChunkStore;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
+import com.kubelize.securewarps.teleport.CrossServerArrivalGuard;
+import com.kubelize.securewarps.teleport.WorldJoinCooldown;
 
 public class SecureWarpsTeleporterInteraction extends SimpleInstantInteraction {
   public static final BuilderCodec<SecureWarpsTeleporterInteraction> CODEC =
@@ -44,11 +46,17 @@ public class SecureWarpsTeleporterInteraction extends SimpleInstantInteraction {
     if (playerEntityRef == null) {
       return;
     }
-    Player player = commandBuffer.getComponent(playerEntityRef, Player.getComponentType());
-    if (player == null) {
+    if (WorldJoinCooldown.shouldIgnore(playerRef.getUuid())) {
       return;
     }
-    if (!player.hasPermission(PortalRuntime.permissions().getUse())) {
+    if (CrossServerArrivalGuard.shouldIgnore(playerRef.getUuid())) {
+      return;
+    }
+    Player live = commandBuffer.getComponent(playerEntityRef, Player.getComponentType());
+    if (live == null) {
+      return;
+    }
+    if (!live.hasPermission(PortalRuntime.permissions().getUse())) {
       playerRef.sendMessage(Message.raw("You do not have permission to use teleporters."));
       return;
     }
@@ -78,7 +86,7 @@ public class SecureWarpsTeleporterInteraction extends SimpleInstantInteraction {
       return;
     }
 
-    getWarpService().teleport(commandBuffer.getStore(), playerEntityRef, playerRef, player, warpName.trim());
+    getWarpService().teleport(commandBuffer.getStore(), playerEntityRef, playerRef, warpName.trim());
   }
 
   private PortalWarpService getWarpService() {

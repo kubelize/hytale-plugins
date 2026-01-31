@@ -1,5 +1,6 @@
 package com.kubelize.securewarps.portal;
 
+import com.hypixel.hytale.builtin.adventure.teleporter.component.Teleporter;
 import com.hypixel.hytale.builtin.teleport.Warp;
 import com.hypixel.hytale.builtin.teleport.WarpListPage;
 import com.hypixel.hytale.codec.builder.BuilderCodec;
@@ -13,10 +14,12 @@ import com.hypixel.hytale.server.core.entity.InteractionContext;
 import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.entity.entities.player.pages.CustomUIPage;
 import com.hypixel.hytale.server.core.entity.entities.player.pages.PageManager;
+import com.hypixel.hytale.server.core.modules.block.BlockModule;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.CooldownHandler;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.config.SimpleInstantInteraction;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
+import com.hypixel.hytale.server.core.universe.world.storage.ChunkStore;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.kubelize.securewarps.db.DatabaseManager;
 import com.kubelize.securewarps.util.ErrorUtil;
@@ -29,7 +32,7 @@ import java.util.logging.Level;
 public class SecureWarpsPortalDeviceConfigInteraction extends SimpleInstantInteraction {
   public static final BuilderCodec<SecureWarpsPortalDeviceConfigInteraction> CODEC =
       BuilderCodec.builder(SecureWarpsPortalDeviceConfigInteraction.class, SecureWarpsPortalDeviceConfigInteraction::new, SimpleInstantInteraction.CODEC)
-          .documentation("Configure Portal_Device target warp for admins")
+          .documentation("Configure Portal_Device target warp (teleporter UI)")
           .build();
 
   @Override
@@ -97,6 +100,7 @@ public class SecureWarpsPortalDeviceConfigInteraction extends SimpleInstantInter
     databaseManager.savePortalTarget(world.getName(), base.x, base.y, base.z, warpName)
         .thenRun(() -> GameThread.run(playerRef, () -> {
           PortalBlockStateUtil.setInteractionState(world, base, "Active");
+          ensureTeleporterWarp(world, base, warpName);
           playerRef.sendMessage(Message.raw("Portal configured to warp: " + warpName));
         }))
         .exceptionally(err -> {
@@ -106,5 +110,19 @@ public class SecureWarpsPortalDeviceConfigInteraction extends SimpleInstantInter
               ErrorUtil.isTimeout(err) ? "Portal save timed out." : "Failed to save portal target.")));
           return null;
         });
+  }
+
+  private void ensureTeleporterWarp(World world, BlockPosition base, String warpName) {
+    Ref<ChunkStore> blockEntityRef = BlockModule.getBlockEntity(world, base.x, base.y, base.z);
+    if (blockEntityRef == null) {
+      return;
+    }
+    Store<ChunkStore> chunkStore = world.getChunkStore().getStore();
+    Teleporter teleporter = chunkStore.getComponent(blockEntityRef, Teleporter.getComponentType());
+    if (teleporter == null) {
+      teleporter = new Teleporter();
+      chunkStore.putComponent(blockEntityRef, Teleporter.getComponentType(), teleporter);
+    }
+    teleporter.setWarp(warpName);
   }
 }

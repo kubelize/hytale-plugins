@@ -1,2 +1,3 @@
 archive/
 *.jar
+.DS_Store
