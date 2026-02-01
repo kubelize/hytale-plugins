@@ -36,7 +36,12 @@ final class PortalWarpService {
                 PlayerRef playerRef,
                 String warpName) {
     databaseManager.getWarpByName(warpName)
-        .thenAccept(result -> GameThread.run(playerRef, () -> handleTeleport(store, ref, playerRef, warpName, result)))
+        .thenAccept(result -> {
+          if (playerRef == null || !playerRef.isValid()) {
+            return;
+          }
+          GameThread.run(playerRef, () -> handleTeleport(store, ref, playerRef, warpName, result));
+        })
         .exceptionally(err -> {
           Logger.getLogger(getClass().getName()).log(Level.WARNING, "Failed to load warp " + warpName, ErrorUtil.rootCause(err));
           GameThread.run(playerRef, () -> playerRef.sendMessage(Message.raw(ErrorUtil.isTimeout(err)
@@ -85,11 +90,7 @@ final class PortalWarpService {
       return;
     }
 
-    Vector3d position = new Vector3d(warp.x(), warp.y(), warp.z());
-    Vector3f rotation = new Vector3f(warp.rotX(), warp.rotY(), warp.rotZ());
-    Teleport teleport = Teleport.createForPlayer(targetWorld, position, rotation);
-    store.putComponent(ref, Teleport.getComponentType(), teleport);
-    playerRef.sendMessage(Message.raw("Teleported to warp: " + name));
+    applyTeleport(store, ref, playerRef, name, warp);
   }
 
   private void teleportToLoadedWorld(Store<EntityStore> store,
@@ -102,9 +103,17 @@ final class PortalWarpService {
       playerRef.sendMessage(Message.raw("Warp world not loaded: " + warp.worldId()));
       return;
     }
+    applyTeleport(store, ref, playerRef, name, warp);
+  }
+
+  private void applyTeleport(Store<EntityStore> store,
+                             Ref<EntityStore> ref,
+                             PlayerRef playerRef,
+                             String name,
+                             WarpRecord warp) {
     Vector3d position = new Vector3d(warp.x(), warp.y(), warp.z());
     Vector3f rotation = new Vector3f(warp.rotX(), warp.rotY(), warp.rotZ());
-    Teleport teleport = Teleport.createForPlayer(targetWorld, position, rotation);
+    Teleport teleport = Teleport.createForPlayer(Universe.get().getWorld(warp.worldId()), position, rotation);
     store.putComponent(ref, Teleport.getComponentType(), teleport);
     playerRef.sendMessage(Message.raw("Teleported to warp: " + name));
   }

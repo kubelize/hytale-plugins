@@ -8,7 +8,6 @@ import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
 import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredArg;
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
-import com.hypixel.hytale.server.core.command.system.arguments.types.ArgumentType;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractPlayerCommand;
 import com.hypixel.hytale.server.core.entity.UUIDComponent;
 import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
@@ -30,7 +29,7 @@ public class WarpSetCommand extends AbstractPlayerCommand {
   private final DatabaseManager databaseManager;
   private final ServerConfig serverConfig;
   @Nonnull
-  private final RequiredArg<String> nameArg = this.withRequiredArg("name", "Warp name", (ArgumentType) ArgTypes.STRING);
+  private final RequiredArg<String> nameArg = this.withRequiredArg("name", "Warp name", CommandArgUtil.typed(ArgTypes.STRING));
 
   public WarpSetCommand(DatabaseManager databaseManager, ServerConfig serverConfig, String permission) {
     super("set", "Set a warp at your current position");

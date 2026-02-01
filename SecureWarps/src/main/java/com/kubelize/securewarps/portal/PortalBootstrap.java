@@ -11,10 +11,7 @@ public final class PortalBootstrap {
     plugin.getCodecRegistry(Interaction.CODEC)
         .register("SecureWarpsTeleporter", SecureWarpsTeleporterInteraction.class, SecureWarpsTeleporterInteraction.CODEC)
         .register("SecureWarpsTeleporterUse", SecureWarpsTeleporterUseInteraction.class, SecureWarpsTeleporterUseInteraction.CODEC)
-        .register("SecureWarpsTeleporterConfig", SecureWarpsTeleporterConfigInteraction.class, SecureWarpsTeleporterConfigInteraction.CODEC)
-        .register("SecureWarpsPortalDeviceAdminOpen", SecureWarpsPortalDeviceAdminInteraction.class, SecureWarpsPortalDeviceAdminInteraction.CODEC)
         .register("SecureWarpsPortalDeviceAdminUse", SecureWarpsPortalDeviceAdminUseInteraction.class, SecureWarpsPortalDeviceAdminUseInteraction.CODEC)
-        .register("SecureWarpsPortalDeviceUse", SecureWarpsPortalDeviceUseInteraction.class, SecureWarpsPortalDeviceUseInteraction.CODEC)
         .register("SecureWarpsPortalDeviceConfig", SecureWarpsPortalDeviceConfigInteraction.class, SecureWarpsPortalDeviceConfigInteraction.CODEC)
         .register("SecureWarpsPortalDeviceTeleport", SecureWarpsPortalDeviceTeleportInteraction.class, SecureWarpsPortalDeviceTeleportInteraction.CODEC);
     OpenCustomUIInteraction.registerCustomPageSupplier(

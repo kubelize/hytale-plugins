@@ -6,7 +6,6 @@ import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
 import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredArg;
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
-import com.hypixel.hytale.server.core.command.system.arguments.types.ArgumentType;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractPlayerCommand;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
@@ -22,7 +21,7 @@ import org.checkerframework.checker.nullness.compatqual.NonNullDecl;
 public class WarpDeleteCommand extends AbstractPlayerCommand {
   private final DatabaseManager databaseManager;
   @Nonnull
-  private final RequiredArg<String> nameArg = this.withRequiredArg("name", "Warp name", (ArgumentType) ArgTypes.STRING);
+  private final RequiredArg<String> nameArg = this.withRequiredArg("name", "Warp name", CommandArgUtil.typed(ArgTypes.STRING));
 
   public WarpDeleteCommand(DatabaseManager databaseManager, String permission) {
     super("delete", "Delete a warp");

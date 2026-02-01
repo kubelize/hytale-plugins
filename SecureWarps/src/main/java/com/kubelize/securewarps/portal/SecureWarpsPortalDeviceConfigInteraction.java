@@ -1,8 +1,6 @@
 package com.kubelize.securewarps.portal;
 
 import com.hypixel.hytale.builtin.adventure.teleporter.component.Teleporter;
-import com.hypixel.hytale.builtin.teleport.Warp;
-import com.hypixel.hytale.builtin.teleport.WarpListPage;
 import com.hypixel.hytale.codec.builder.BuilderCodec;
 import com.hypixel.hytale.component.CommandBuffer;
 import com.hypixel.hytale.component.Ref;
@@ -12,8 +10,6 @@ import com.hypixel.hytale.protocol.InteractionType;
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.entity.InteractionContext;
 import com.hypixel.hytale.server.core.entity.entities.Player;
-import com.hypixel.hytale.server.core.entity.entities.player.pages.CustomUIPage;
-import com.hypixel.hytale.server.core.entity.entities.player.pages.PageManager;
 import com.hypixel.hytale.server.core.modules.block.BlockModule;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.CooldownHandler;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.config.SimpleInstantInteraction;
@@ -24,8 +20,6 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.kubelize.securewarps.db.DatabaseManager;
 import com.kubelize.securewarps.util.ErrorUtil;
 import com.kubelize.securewarps.util.GameThread;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Level;
 
@@ -62,34 +56,8 @@ public class SecureWarpsPortalDeviceConfigInteraction extends SimpleInstantInter
       return;
     }
 
-    BlockPosition target = context.getTargetBlock();
-    if (target == null) {
-      return;
-    }
-    World world = ((EntityStore) commandBuffer.getExternalData()).getWorld();
-    BlockPosition base = world.getBaseBlock(target);
-
-    Map<String, Warp> warpMap = new HashMap<>(TeleporterWarpCache.getSnapshot());
-    if (warpMap.isEmpty()) {
-      playerRef.sendMessage(Message.raw("No warps available to assign."));
-      return;
-    }
-
-    PageManager pageManager = player.getPageManager();
-    if (pageManager.getCustomPage() != null) {
-      return;
-    }
-
-    CustomUIPage page = new WarpListPage(playerRef, warpMap, selected -> {
-      String warpName = selected == null ? "" : selected.trim();
-      if (warpName.isEmpty()) {
-        playerRef.sendMessage(Message.raw("No warp selected."));
-        return;
-      }
-      savePortalTarget(PortalRuntime.database(), playerRef, world, base, warpName);
-    });
-
-    pageManager.openCustomPage(entityRef, commandBuffer.getStore(), page);
+    WarpSelectionUtil.openWarpSelector(commandBuffer, context, playerRef, player, (target, warpName) ->
+        savePortalTarget(PortalRuntime.database(), playerRef, target.world(), target.base(), warpName));
   }
 
   private void savePortalTarget(DatabaseManager databaseManager,

@@ -1,3 +1,18 @@
 archive/
 *.jar
 .DS_Store
+
+# Gradle
+.gradle/
+**/.gradle/
+build/
+**/build/
+
+# IDE/editor
+.idea/
+*.iml
+*.log
+**/*.log
+
+# OS junk
+**/.DS_Store

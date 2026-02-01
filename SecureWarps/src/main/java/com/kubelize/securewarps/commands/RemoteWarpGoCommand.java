@@ -6,7 +6,6 @@ import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
 import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredArg;
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
-import com.hypixel.hytale.server.core.command.system.arguments.types.ArgumentType;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractPlayerCommand;
 import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
@@ -30,7 +29,7 @@ public class RemoteWarpGoCommand extends AbstractPlayerCommand {
   private final DatabaseManager databaseManager;
   private final ServerConfig serverConfig;
   @Nonnull
-  private final RequiredArg<String> nameArg = this.withRequiredArg("name", "Warp name", (ArgumentType) ArgTypes.STRING);
+  private final RequiredArg<String> nameArg = this.withRequiredArg("name", "Warp name", CommandArgUtil.typed(ArgTypes.STRING));
 
   public RemoteWarpGoCommand(DatabaseManager databaseManager, ServerConfig serverConfig, String permission) {
     super("go", "Warp to a remote server");
@@ -96,7 +95,7 @@ public class RemoteWarpGoCommand extends AbstractPlayerCommand {
       return;
     }
 
-    databaseManager.saveInventory(player.getUuid(), InventorySnapshotUtil.encode(player.getInventory()))
+    databaseManager.saveInventory(playerRef.getUuid(), InventorySnapshotUtil.encode(player.getInventory()))
         .thenRun(() -> GameThread.run(playerRef, () -> {
           try {
             byte[] payload = warp.name().getBytes(StandardCharsets.UTF_8);

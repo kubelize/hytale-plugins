@@ -4,7 +4,9 @@ import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.event.events.player.PlayerDisconnectEvent;
 import com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent;
 import com.hypixel.hytale.server.core.inventory.Inventory;
+import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
+import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.kubelize.securewarps.config.InventoryConfig;
 import com.kubelize.securewarps.db.DatabaseManager;
@@ -44,8 +46,11 @@ public class InventorySyncService implements AutoCloseable {
     if (!config.isEnabled()) {
       return;
     }
+    PlayerRef playerRef = resolvePlayerRef(event.getPlayerRef());
+    if (playerRef == null) {
+      return;
+    }
     Player player = event.getPlayer();
-    PlayerRef playerRef = player.getPlayerRef();
     UUID uuid = playerRef.getUuid();
     activePlayers.put(uuid, playerRef);
 
@@ -88,7 +93,7 @@ public class InventorySyncService implements AutoCloseable {
       if (player == null) {
         return;
       }
-      savePlayerInventory(player);
+      savePlayerInventory(ref.getUuid(), player);
     });
   }
 
@@ -103,7 +108,7 @@ public class InventorySyncService implements AutoCloseable {
           if (player == null) {
             return;
           }
-          savePlayerInventory(player);
+          savePlayerInventory(ref.getUuid(), player);
         });
       }
     } catch (Exception e) {
@@ -111,8 +116,7 @@ public class InventorySyncService implements AutoCloseable {
     }
   }
 
-  private void savePlayerInventory(Player player) {
-    UUID uuid = player.getPlayerRef().getUuid();
+  private void savePlayerInventory(UUID uuid, Player player) {
     Inventory inventory = player.getInventory();
     BsonDocument snapshot = InventorySnapshotUtil.encode(inventory);
     databaseManager.saveInventory(uuid, snapshot)
@@ -135,5 +139,12 @@ public class InventorySyncService implements AutoCloseable {
         Thread.currentThread().interrupt();
       }
     }
+  }
+
+  private static PlayerRef resolvePlayerRef(Ref<EntityStore> ref) {
+    if (ref == null || !ref.isValid()) {
+      return null;
+    }
+    return ref.getStore().getComponent(ref, PlayerRef.getComponentType());
   }
 }

@@ -8,7 +8,6 @@ import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
 import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredArg;
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
-import com.hypixel.hytale.server.core.command.system.arguments.types.ArgumentType;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractPlayerCommand;
 import com.hypixel.hytale.server.core.entity.UUIDComponent;
 import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
@@ -28,11 +27,11 @@ import org.checkerframework.checker.nullness.compatqual.NonNullDecl;
 public class RemoteWarpSetCommand extends AbstractPlayerCommand {
   private final DatabaseManager databaseManager;
   @Nonnull
-  private final RequiredArg<String> nameArg = this.withRequiredArg("name", "Warp name", (ArgumentType) ArgTypes.STRING);
+  private final RequiredArg<String> nameArg = this.withRequiredArg("name", "Warp name", CommandArgUtil.typed(ArgTypes.STRING));
   @Nonnull
-  private final RequiredArg<String> hostArg = this.withRequiredArg("host", "Target host", (ArgumentType) ArgTypes.STRING);
+  private final RequiredArg<String> hostArg = this.withRequiredArg("host", "Target host", CommandArgUtil.typed(ArgTypes.STRING));
   @Nonnull
-  private final RequiredArg<Integer> portArg = this.withRequiredArg("port", "Target port", (ArgumentType) ArgTypes.INTEGER);
+  private final RequiredArg<Integer> portArg = this.withRequiredArg("port", "Target port", CommandArgUtil.typed(ArgTypes.INTEGER));
 
   public RemoteWarpSetCommand(DatabaseManager databaseManager, String permission) {
     super("set", "Assign a remote server to an existing warp");
